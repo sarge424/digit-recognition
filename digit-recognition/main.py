@@ -148,7 +148,7 @@ def is_blank():
 
 print('\n\n-->Loading model...')
 application_path = os.path.dirname(sys.executable)
-model = tf.keras.models.load_model('./model')
+model = tf.keras.models.load_model('./best_0-11_2-38')
 
 disp = pygame.display.set_mode((28*PIXEL_SIZE, 34*PIXEL_SIZE))
 pygame.display.set_caption('Digit Recognition')
