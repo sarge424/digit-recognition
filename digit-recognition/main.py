@@ -13,8 +13,9 @@ pygame.font.init()
 
 #GLOBALS
 PIXEL_SIZE = 20
+FPS = 200
+MIN_AREA = 10
 show_grid = False
-show_crosshair = False
 show_boundingbox = False
 old_pixel = (-1, -1)
 brush_size = 1.5
@@ -34,7 +35,7 @@ def draw_bg(disp):
     text_rect = text.get_rect(center=(14*PIXEL_SIZE, 28*PIXEL_SIZE + 12))
     disp.blit(text, text_rect)
     
-    text2 = my_font.render('C:Crosshair  B:BoundingBox  G:Gridlines', False, text_color)
+    text2 = my_font.render('B:Toggle Bounding Box    G:Toggle Gridlines', False, text_color)
     text_rect2 = text2.get_rect(center=(14*PIXEL_SIZE, 29*PIXEL_SIZE + 10))
     disp.blit(text2, text_rect2)
 
@@ -45,38 +46,42 @@ def draw_gridlines(disp, color=(100,100,100)):
             pygame.draw.line(disp, color, (i*PIXEL_SIZE, 0), (i*PIXEL_SIZE, 28*PIXEL_SIZE), 1)
             #horizontal lines
             pygame.draw.line(disp, color, (0, i*PIXEL_SIZE), (28*PIXEL_SIZE, i*PIXEL_SIZE), 1)
-        
-    #center box
-    if show_crosshair:
-        mid = 28*PIXEL_SIZE // 2 - 5
-        pygame.draw.rect(disp, (0, 255, 0), (mid, mid, 10, 10))
 
-def draw_bb(disp):
-    if not show_boundingbox:
-        return
+def calc_bb():
     t = b = l = r = 0
     for i, row in enumerate(pixels):
         if sum([x[0] for x in row]) > 0:
-            l = i
+            t = i
             break
         
     for i, row in enumerate(pixels[::-1]):
         if sum([x[0] for x in row]) > 0:
-            r = 28 - i
+            b = 28 - i
             break
         
     pixels_T = [[pixels[j][i] for j in range(len(pixels))] for i in range(len(pixels[0]))]
     
     for i, row in enumerate(pixels_T):
         if sum([x[0] for x in row]) > 0:
-            t = i
+            l = i
             break
         
     for i, row in enumerate(pixels_T[::-1]):
         if sum([x[0] for x in row]) > 0:
-            b = 28 - i
+            r = 28 - i
             break
-    
+        
+    return t,b,l,r
+
+def calc_area():
+    t, b, l, r = calc_bb()
+    area = (t-b) * (l-r) * 100 / 28**2
+    return round(area, 2)
+
+def draw_bb(disp):
+    if not show_boundingbox:
+        return
+    t, b, l, r = calc_bb()
     color = (0, 0, 255)
     pygame.draw.line(disp, color, (l*PIXEL_SIZE, t*PIXEL_SIZE), (l*PIXEL_SIZE, b*PIXEL_SIZE), 1) #TOP
     pygame.draw.line(disp, color, (r*PIXEL_SIZE, t*PIXEL_SIZE), (r*PIXEL_SIZE, b*PIXEL_SIZE), 1) #TOP
@@ -85,11 +90,11 @@ def draw_bb(disp):
     
 def fill_px(loc, w=1):
     x, y = loc
-    pixels[x][y] = (255, 255, 255) if w == 1 else (0, 0, 0)
+    pixels[y][x] = (255, 255, 255) if w == 1 else (0, 0, 0)
     for i in range(28):
         for j in range(28):
-            if (x-i)**2 + (y-j)**2 <= brush_size**2:
-                dist = math.sqrt((x-i)**2 + (y-j)**2)
+            if (x-j)**2 + (y-i)**2 <= brush_size**2:
+                dist = math.sqrt((x-j)**2 + (y-i)**2)
                 old_b = pixels[i][j][0]
                 brightness = max(min(255, w*int((brush_size - dist) * 255 / brush_size) + old_b), 0)
                 pixels[i][j] = (brightness, brightness, brightness)
@@ -98,7 +103,7 @@ def fill_px(loc, w=1):
 def draw_pixels(disp):
     for i, row in enumerate(pixels):
         for j, color in enumerate(row):
-            pygame.draw.rect(disp, color, (i*PIXEL_SIZE, j*PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE))
+            pygame.draw.rect(disp, color, (j*PIXEL_SIZE, i*PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE))
 
 def make_prediction(model, x):
     z = model.predict(x)
@@ -107,22 +112,55 @@ def make_prediction(model, x):
 
 def img_to_x():
     data = []
+    p_center = center_img()
     for i in range(28):
         for j in range(28):
-            data.append(pixels[j][i][0] / 255)
+            data.append(p_center[i][j][0] / 255)
             
     return np.array(data)   
         
-def draw_probs(disp, yhat_in, color=(100,100,100)):
-    yhat = yhat_in[0]
-    pred = yhat.argmax()
+def center_img():
+    t, b, l, r = calc_bb()
     
-    #check if image is blank
-    if is_blank():
-        yhat = np.zeros(10)
-        pred = -1
+    if b-t == 0 or l-r == 0:
+        return pixels
+    
+    pixels_sub = [[pixels[i][j] for j in range(l, r)] for i in range(t, b)]
+    
+    r = len(pixels_sub)
+    c = len(pixels_sub[0])
+    r_pad = (28 - r) / 2
+    c_pad = (28 - c) / 2
+    
+    pixels_c = [[(0,0,0)] * math.floor(c_pad) + pixels_sub[i] + [(0,0,0)] * math.ceil(c_pad) for i in range(r)]
+    pixels_centered = [[(0,0,0) for _ in range(28)]] * math.floor(r_pad) + pixels_c + [[(0,0,0) for _ in range(28)]] * math.ceil(r_pad)
+    
+    return pixels_centered
+        
+def px_debug(pixels_in):
+    print('debug:', len(pixels_in), len(pixels_in[0]))
+    for row in pixels_in:
+        print('|', end='')
+        for col in row:
+            if col[0] > 0:
+                print('##', end='')
+            else:
+                print('  ', end='')
+        print('|\n', end='')
+
+def draw_probs(disp, yhat_in, color=(100,100,100)):
     
     my_font = pygame.font.SysFont('mono', 15, bold=True)
+    
+    area = calc_area()
+    if area < MIN_AREA:
+        text = my_font.render(f'Bounding box is too small ({area}% area of minimum {MIN_AREA}% covered)', False, (255, 225, 0))
+        text_rect = text.get_rect(center=(14*PIXEL_SIZE, 30*PIXEL_SIZE + 10))
+        disp.blit(text, text_rect)
+        return
+        
+    yhat = yhat_in[0]
+    pred = yhat.argmax()
     
     box_size = 28*PIXEL_SIZE // 10
     y_height = 4*PIXEL_SIZE
@@ -148,7 +186,7 @@ def is_blank():
 
 print('\n\n-->Loading model...')
 application_path = os.path.dirname(sys.executable)
-model = tf.keras.models.load_model('./best_0-11_2-38')
+model = tf.keras.models.load_model('./model')
 
 disp = pygame.display.set_mode((28*PIXEL_SIZE, 34*PIXEL_SIZE))
 pygame.display.set_caption('Digit Recognition')
@@ -156,18 +194,18 @@ pygame.display.set_caption('Digit Recognition')
 run = True
 clock = pygame.time.Clock()
 frames_to_predict = 0
+yhat = np.array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
 while run:
-    clock.tick(120) #FPS
+    clock.tick(FPS) #FPS
     
     draw_bg(disp)
     
     #model
-    if frames_to_predict == 0:
+    if frames_to_predict <= 0 and calc_area() >= MIN_AREA:
         yhat = make_prediction(model, img_to_x().reshape(1,-1))
-        certainity = yhat[0, yhat.argmax(axis=1)]
-        print(yhat)
+        certainity = yhat[0, yhat.argmax(axis=1)]    
         
-        frames_to_predict = 30 #runs every n frames
+        frames_to_predict = FPS // 4 #runs 4 times a sec
     else:
         frames_to_predict -= 1
     
@@ -199,11 +237,11 @@ while run:
             if event.key == pygame.K_g:
                 show_grid = not show_grid
                 
-            if event.key == pygame.K_c:
-                show_crosshair = not show_crosshair
-                
             if event.key == pygame.K_b:
                 show_boundingbox = not show_boundingbox
+                
+            if event.key == pygame.K_d:
+                center_img()
         
         if event.type == pygame.QUIT: #pressed the 'X'
             run = False
