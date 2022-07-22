@@ -184,9 +184,19 @@ def is_blank():
                 return False
     return True
 
+def resource_path(relative_path):
+    """ Get the absolute path to the resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 print('\n\n-->Loading model...')
 application_path = os.path.dirname(sys.executable)
-model = tf.keras.models.load_model('./model')
+model = tf.keras.models.load_model(resource_path('./model'))
 
 disp = pygame.display.set_mode((28*PIXEL_SIZE, 34*PIXEL_SIZE))
 pygame.display.set_caption('Digit Recognition')
